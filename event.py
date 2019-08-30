@@ -210,8 +210,13 @@ class Event:
                    self.other, self.tmp, self.adv)
 
 
-def construct_digraph(events: List[Event]):
+def construct_digraph(events: List[Event], three=False):
     core_graph = Digraph(graph_attr={
+        # 'nodesep': '1.0',
+        # 'ranksep': '1.0',
+        'rankdir': 'LR'
+    })
+    normal_graph = Digraph(graph_attr={
         # 'nodesep': '1.0',
         # 'ranksep': '1.0',
         'rankdir': 'LR'
@@ -223,16 +228,32 @@ def construct_digraph(events: List[Event]):
     })
     interval = 10
     core_events = []
+    normal_events = []
     peripheral_events = []
     for event in events:
         if event.agent is None or event.patient is None:
             continue
-        if event.agent.referent is None and event.patient.referent is None:
+        elif event.agent.referent is None:
             peripheral_events.append(event)
+        elif event.patient.referent is None:
+            normal_events.append(event)
+        elif event.agent.referent == event.patient.referent: # remove self-loop
+            continue
         else:
             core_events.append(event)
 
-    for events, graph in zip([core_events, peripheral_events], [core_graph, peripheral_graph]):
+
+    if not three:
+        events_list = [core_events + normal_events, peripheral_events]
+        graph_list = [core_graph, peripheral_graph]
+        normal_graph = None
+    else:
+        events_list = [core_events, normal_events, peripheral_events]
+        graph_list = [core_graph, normal_graph, peripheral_graph]
+
+
+    for events, graph in zip(events_list,
+                             graph_list):
         for event in events:
             agent = None
             if event.agent is not None:
@@ -266,7 +287,7 @@ def construct_digraph(events: List[Event]):
                            line_break(patient, interval),
                            label=event.predicate.reify())
 
-    return core_graph, peripheral_graph
+    return core_graph, normal_graph, peripheral_graph
 
 
 def span_dist(span1, span2):
@@ -318,11 +339,11 @@ def semgrex_query_factory(pattern):
                             "date": "2019-08-17T21:03:47"
                         }
                         }
-        response = requests.post("http://localhost:9001",
+        response = requests.post("http://localhost:9000",
                                     params=query_string,
                                  data=dict(data=simp_text))
         infos = response.json()
-        response = requests.post("http://localhost:9001/semgrex",
+        response = requests.post("http://localhost:9000/semgrex",
                                     params=query_string,
                                     data=dict(data=simp_text))
         semgrex = response.json()
@@ -369,6 +390,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", help="input json file")
     parser.add_argument("--output", help="output png file")
+    parser.add_argument("--three", action='store_true', help="whether to split core and normal graph")
     parser.add_argument("--mode", choices=["strict", "inclusion"], help="mode for resolving referents")
     args = parser.parse_args()
     with open(args.input) as fp:
@@ -442,6 +464,8 @@ if __name__ == '__main__':
         mention.maybe_resolve_referent()
         if mention.referent is not None:
             print(f"mention: {mention.reify()}, referent: {mention.referent.representative}")
-    core_graph, peripheral_graph = construct_digraph(events)
-    core_graph.render(args.output + '_core')
-    peripheral_graph.render(args.output + '_peripheral')
+    core_graph, normal_graph, peripheral_graph = construct_digraph(events, three=args.three)
+    core_graph.render(args.output + 'core')
+    if normal_graph is not None:
+        normal_graph.render(args.output + 'normal')
+    peripheral_graph.render(args.output + 'peripheral')
